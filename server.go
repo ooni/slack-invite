@@ -33,9 +33,13 @@ type Page struct {
 	Workspace    string
 	ContactEmail string
 	SignInURL    string
-	Email        string
-	Note         string
-	Error        string
+	// AskNote shows the "What brings you" box and passes on what is
+	// typed in it. Off by default: nothing visitors write reaches the admins
+	// except their email address.
+	AskNote bool
+	Email   string
+	Note    string
+	Error   string
 }
 
 // Server takes requests to join the workspace and passes them to its admins.
@@ -57,7 +61,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /assets/{file}", cacheFor(86400, http.FileServerFS(assets)))
 	// slackin's badge, which READMEs embed; this one has no member count
 	mux.Handle("GET /badge.svg", cacheFor(86400, http.HandlerFunc(badge)))
-	return securityHeaders(mux)
+	// Refuse forms posted from other sites, which could otherwise send
+	// requests through their visitors' browsers
+	return securityHeaders(http.NewCrossOriginProtection().Handler(mux))
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
@@ -72,7 +78,9 @@ func (s *Server) request(w http.ResponseWriter, r *http.Request) {
 	}
 	page := s.Page
 	page.Email = strings.TrimSpace(r.PostFormValue("email"))
-	page.Note = strings.TrimSpace(r.PostFormValue("note"))
+	if s.Page.AskNote {
+		page.Note = strings.TrimSpace(cleanNote(r.PostFormValue("note")))
+	}
 
 	// Bots fill in the hidden field; act as if it worked
 	if r.PostFormValue("website") != "" {
@@ -112,7 +120,7 @@ func validate(email, note string) string {
 		return "Please enter your email address."
 	}
 	addr, err := mail.ParseAddress(email)
-	if err != nil || addr.Address != email || addr.Name != "" ||
+	if err != nil || addr.Address != email || addr.Name != "" || strings.ContainsFunc(email, hidden) ||
 		len(email) > maxEmail || !strings.Contains(email[strings.LastIndex(email, "@")+1:], ".") {
 		return "Please enter a valid email address, like name@example.org."
 	}
@@ -122,7 +130,8 @@ func validate(email, note string) string {
 	return ""
 }
 
-// clientIP is the address requests are rate limited by.
+// clientIP is what requests are rate limited by: the client's IPv4
+// address, or its IPv6 /64, since one machine usually has a whole /64.
 func (s *Server) clientIP(r *http.Request) string {
 	if s.ClientIPHeader != "" {
 		// The last address is the one the proxy saw; a client can make up
@@ -132,14 +141,22 @@ func (s *Server) clientIP(r *http.Request) string {
 			last := values[len(values)-1]
 			last = strings.TrimSpace(last[strings.LastIndex(last, ",")+1:])
 			if addr, err := netip.ParseAddr(last); err == nil {
-				return addr.Unmap().String()
+				return clientKey(addr)
 			}
 		}
 	}
 	if addrPort, err := netip.ParseAddrPort(r.RemoteAddr); err == nil {
-		return addrPort.Addr().Unmap().String()
+		return clientKey(addrPort.Addr())
 	}
 	return r.RemoteAddr
+}
+
+func clientKey(addr netip.Addr) string {
+	addr = addr.Unmap()
+	if addr.Is6() {
+		return netip.PrefixFrom(addr, 64).Masked().String()
+	}
+	return addr.String()
 }
 
 func (s *Server) render(w http.ResponseWriter, status int, name string, page Page) {
@@ -169,6 +186,8 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")
+		// The load balancer redirects http to https; browsers then stay on https
+		h.Set("Strict-Transport-Security", "max-age=31536000")
 		next.ServeHTTP(w, r)
 	})
 }

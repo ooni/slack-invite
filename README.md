@@ -6,16 +6,20 @@ token, both of which Slack has been shutting down.
 
 ## How it works
 
-1. Someone enters their email address, and optionally what brings them to
-   OONI, at slack.ooni.org.
+1. Someone enters their email address at slack.ooni.org (and, if `ASK_NOTE`
+   is set, what brings them to OONI).
 2. The service posts the request to an admin Slack channel through an
    incoming webhook.
 3. An admin invites them from Slack (workspace menu → Invite people). Slack
    emails them an invitation for their address. To decline, do nothing.
 
-Nothing is stored. Email and IP addresses go only to the Slack channel and
-aren't logged. A hidden honeypot field and rate limits (3 requests per client
-and 30 overall per hour) keep spam down.
+Nothing is stored or logged. The service sends Slack only the email
+address (Slack sees visitors' IP addresses anyway once they join); it
+counts IP addresses in memory, for rate limiting, and nothing else. A hidden
+honeypot field and rate limits (3 requests per IPv4 address or IPv6 /64,
+and 30 overall, per hour) keep spam down, and forms posted from other sites
+are refused. What visitors type reaches Slack as plain text, shown exactly
+as typed, without control or formatting characters.
 
 ## Configuration
 
@@ -28,6 +32,7 @@ From the environment:
 | `WORKSPACE_NAME` | Shown on the page and in requests (default `OONI`) |
 | `CONTACT_EMAIL` | Shown as a fallback for people who can't use the form |
 | `SLACK_SIGNIN_URL` | The workspace's URL (`https://<workspace>.slack.com/`), linked for members to sign in |
+| `ASK_NOTE` | `true` to also ask what brings people to the workspace and pass it on. Off by default: only the email address is asked for |
 | `CLIENT_IP_HEADER` | Header the load balancer puts the client's address in (`X-Forwarded-For` behind an AWS load balancer; its last address is used). Only for rate limiting |
 | `LISTEN_ADDR` | Address to listen on (default `:3000`; the image sets `:80`) |
 

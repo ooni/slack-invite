@@ -10,6 +10,9 @@
 //	CONTACT_EMAIL           shown as a fallback for people who can't use the form
 //	SLACK_SIGNIN_URL        the workspace's URL, linked for members to sign in
 //	                        (https://<workspace>.slack.com/)
+//	ASK_NOTE                true to ask what brings people to the workspace and
+//	                        pass it on with their email address (default false:
+//	                        only the email address is asked for)
 //	CLIENT_IP_HEADER        header the load balancer puts the client's address
 //	                        in, e.g. X-Forwarded-For (its last address is used);
 //	                        only for rate limiting
@@ -28,6 +31,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 )
@@ -92,6 +96,13 @@ func fromEnv(getenv func(string) string) (*Server, string, error) {
 	}
 	if page.Workspace == "" {
 		page.Workspace = "OONI"
+	}
+	if v := getenv("ASK_NOTE"); v != "" {
+		ask, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, "", fmt.Errorf("ASK_NOTE: %q is not true or false", v)
+		}
+		page.AskNote = ask
 	}
 	addr := getenv("LISTEN_ADDR")
 	if addr == "" {

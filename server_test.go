@@ -67,6 +67,36 @@ func TestIndexShowsTheForm(t *testing.T) {
 	}
 }
 
+func TestCrossSitePostsAreRefused(t *testing.T) {
+	post := func(set func(*http.Request)) int {
+		r := httptest.NewRequest("POST", "https://slack.example.org/", strings.NewReader("email=ada%40example.org"))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		set(r)
+		w := httptest.NewRecorder()
+		newServer(&fakeNotifier{}).Handler().ServeHTTP(w, r)
+		return w.Code
+	}
+	if code := post(func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "cross-site") }); code != http.StatusForbidden {
+		t.Errorf("cross-site: status %d", code)
+	}
+	if code := post(func(r *http.Request) { r.Header.Set("Origin", "https://not-slack.example") }); code != http.StatusForbidden {
+		t.Errorf("other origin: status %d", code)
+	}
+	if code := post(func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "same-origin") }); code != 200 {
+		t.Errorf("same origin: status %d", code)
+	}
+}
+
+func TestSecurityHeaders(t *testing.T) {
+	w := httptest.NewRecorder()
+	newServer(&fakeNotifier{}).Handler().ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	for _, h := range []string{"Content-Security-Policy", "Strict-Transport-Security", "X-Content-Type-Options", "Referrer-Policy"} {
+		if w.Header().Get(h) == "" {
+			t.Errorf("no %s", h)
+		}
+	}
+}
+
 func TestAssets(t *testing.T) {
 	h := newServer(&fakeNotifier{}).Handler()
 	for path, ctype := range map[string]string{
@@ -95,11 +125,29 @@ func TestAssets(t *testing.T) {
 
 func TestRequestIsPassedOn(t *testing.T) {
 	n := &fakeNotifier{}
-	w := submit(t, newServer(n), url.Values{"email": {" ada@example.org "}, "note": {"I run probes"}}, "")
+	s := newServer(n)
+	s.Page.AskNote = true
+	w := submit(t, s, url.Values{"email": {" ada@example.org "}, "note": {"I run\u202e probes\x07"}}, "")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "ada@example.org") {
 		t.Fatalf("status %d:\n%s", w.Code, w.Body.String())
 	}
+	// Control and formatting characters are dropped from the note
 	if len(n.reqs) != 1 || n.reqs[0] != (Request{Email: "ada@example.org", Note: "I run probes"}) {
+		t.Fatalf("passed on %+v", n.reqs)
+	}
+}
+
+func TestNoteIsOffByDefault(t *testing.T) {
+	n := &fakeNotifier{}
+	s := newServer(n)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	if strings.Contains(w.Body.String(), `name="note"`) {
+		t.Fatal("the form asks for a note")
+	}
+	// A note posted anyway isn't passed on
+	submit(t, s, url.Values{"email": {"ada@example.org"}, "note": {"hello"}}, "")
+	if len(n.reqs) != 1 || n.reqs[0] != (Request{Email: "ada@example.org"}) {
 		t.Fatalf("passed on %+v", n.reqs)
 	}
 }
@@ -112,10 +160,14 @@ func TestInvalidRequestsAreRefused(t *testing.T) {
 		"two addresses": {"email": {"ada@example.org, bob@example.org"}},
 		"display name":  {"email": {"Ada <ada@example.org>"}},
 		"long note":     {"email": {"ada@example.org"}, "note": {strings.Repeat("x", 1001)}},
+		"bidi override": {"email": {"ada\u202e@example.org"}},
+		"control char":  {"email": {"ada\x07@example.org"}},
 	}
 	for name, form := range cases {
 		n := &fakeNotifier{}
-		w := submit(t, newServer(n), form, "")
+		s := newServer(n)
+		s.Page.AskNote = true
+		w := submit(t, s, form, "")
 		if w.Code != http.StatusUnprocessableEntity || len(n.reqs) != 0 {
 			t.Errorf("%s: status %d, passed on %d", name, w.Code, len(n.reqs))
 		}
@@ -175,10 +227,11 @@ func TestClientIP(t *testing.T) {
 	s := &Server{ClientIPHeader: "X-Forwarded-For"}
 	cases := []struct{ remote, xff, want string }{
 		{"192.0.2.1:1234", "", "192.0.2.1"},
-		{"[2001:db8::1]:1234", "", "2001:db8::1"},
+		{"[2001:db8::1]:1234", "", "2001:db8::/64"},
 		{"[::ffff:192.0.2.1]:1234", "", "192.0.2.1"},
 		{"10.0.0.1:1234", "1.1.1.1, 198.51.100.1", "198.51.100.1"},
-		{"10.0.0.1:1234", "2001:db8::2", "2001:db8::2"},
+		{"10.0.0.1:1234", "2001:db8::2", "2001:db8::/64"},
+		{"10.0.0.1:1234", "2001:db8:0:1::2", "2001:db8:0:1::/64"},
 		// Not an address: the connection's address is used
 		{"10.0.0.1:1234", "1.1.1.1, garbage", "10.0.0.1"},
 	}
@@ -191,6 +244,22 @@ func TestClientIP(t *testing.T) {
 		if got := s.clientIP(r); got != c.want {
 			t.Errorf("%s, %q: got %s, want %s", c.remote, c.xff, got, c.want)
 		}
+	}
+}
+
+func TestIPv6ClientsShareTheirSlash64(t *testing.T) {
+	s := newServer(&fakeNotifier{})
+	form := url.Values{"email": {"ada@example.org"}}
+	for i, remote := range []string{"[2001:db8::1]:1", "[2001:db8::2]:1", "[2001:db8::3]:1"} {
+		if w := submit(t, s, form, remote); w.Code != 200 {
+			t.Fatalf("request %d: status %d", i, w.Code)
+		}
+	}
+	if w := submit(t, s, form, "[2001:db8::4]:1"); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("a 4th address in the same /64: status %d", w.Code)
+	}
+	if w := submit(t, s, form, "[2001:db8:0:1::1]:1"); w.Code != 200 {
+		t.Fatalf("another /64: status %d", w.Code)
 	}
 }
 
@@ -229,23 +298,51 @@ func TestSlackWebhookMessage(t *testing.T) {
 	defer slack.Close()
 
 	n := &SlackWebhook{URL: slack.URL, Workspace: "OONI", Client: slack.Client()}
-	err := n.Notify(context.Background(), Request{
-		Email: "ada@example.org",
-		Note:  "hi <!channel> see <https://evil.example|this>\nsecond line",
-	})
-	if err != nil {
+	note := "hi <!channel> see https://not-slack.example\nsecond line"
+	if err := n.Notify(context.Background(), Request{Email: "j_o_h_n@example.org", Note: note}); err != nil {
 		t.Fatal(err)
 	}
-	text, _ := got["text"].(string)
-	if !strings.Contains(text, "ada@example.org") || !strings.Contains(text, ">second line") {
-		t.Fatalf("text: %q", text)
+
+	// The notification text has nothing the visitor typed
+	if got["text"] != "Request to join OONI on Slack" {
+		t.Fatalf("text: %q", got["text"])
 	}
-	// What visitors type can't ping the channel or make links
-	if strings.Contains(text, "<!channel>") || strings.Contains(text, "<https://") {
-		t.Fatalf("not escaped: %q", text)
+	// What they typed is only in plain_text objects, exactly as typed
+	var typed []string
+	for _, b := range got["blocks"].([]any) {
+		block := b.(map[string]any)
+		texts := []any{block["text"]}
+		if els, ok := block["elements"].([]any); ok {
+			texts = els
+		}
+		for _, t0 := range texts {
+			obj, ok := t0.(map[string]any)
+			if !ok {
+				continue
+			}
+			if obj["type"] != "plain_text" {
+				t.Fatalf("a %s object in the %s block", obj["type"], block["type"])
+			}
+			typed = append(typed, obj["text"].(string))
+		}
+	}
+	all := strings.Join(typed, "\n")
+	if !strings.Contains(all, "Email: j_o_h_n@example.org") || !strings.Contains(all, "Note: "+note) {
+		t.Fatalf("blocks: %q", typed)
 	}
 	if got["unfurl_links"] != false {
 		t.Fatalf("links unfurl: %v", got)
+	}
+}
+
+func TestSlackWebhookErrorHidesTheURL(t *testing.T) {
+	slack := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	hook := slack.URL + "/services/T000/B000/SECRETPART"
+	slack.Close() // so posting fails
+	n := &SlackWebhook{URL: hook, Workspace: "OONI", Client: &http.Client{Timeout: time.Second}}
+	err := n.Notify(context.Background(), Request{Email: "ada@example.org"})
+	if err == nil || strings.Contains(err.Error(), "SECRETPART") || strings.Contains(err.Error(), "/services/") {
+		t.Fatalf("error: %v", err)
 	}
 }
 
@@ -273,6 +370,7 @@ func TestFromEnv(t *testing.T) {
 		{"SLACK_WEBHOOK_URL": "http://hooks.slack.com/services/x"},
 		{"SLACK_WEBHOOK_URL_FILE": "/does/not/exist"},
 		{"SLACK_WEBHOOK_URL": hook, "SLACK_SIGNIN_URL": "javascript:alert(1)"},
+		{"SLACK_WEBHOOK_URL": hook, "ASK_NOTE": "maybe"},
 	}
 	for _, m := range bad {
 		if _, _, err := fromEnv(env(m)); err == nil {
@@ -282,5 +380,11 @@ func TestFromEnv(t *testing.T) {
 	s, addr, err := fromEnv(env(map[string]string{"SLACK_WEBHOOK_URL": hook + "\n"}))
 	if err != nil || addr != ":3000" || s.Page.Workspace != "OONI" {
 		t.Fatalf("defaults: %v %q %+v", err, addr, s)
+	}
+	if s.Page.AskNote {
+		t.Fatal("asks for a note by default")
+	}
+	if s, _, err := fromEnv(env(map[string]string{"SLACK_WEBHOOK_URL": hook, "ASK_NOTE": "true"})); err != nil || !s.Page.AskNote {
+		t.Fatalf("ASK_NOTE=true: %v", err)
 	}
 }

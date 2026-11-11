@@ -6,9 +6,11 @@
   <label class="visually-hidden" for="email">Email address</label>
   <input class="form-item" id="email" name="email" type="email" placeholder="you@yourdomain.com"
          required maxlength="254" autocomplete="email" autofocus value="{{.Email}}">
+  {{if .AskNote}}
   <label class="visually-hidden" for="note">What brings you to {{.Workspace}}? (optional)</label>
   <textarea class="form-item" id="note" name="note" maxlength="1000"
             placeholder="What brings you to {{.Workspace}}? (optional)">{{.Note}}</textarea>
+  {{end}}
   <div class="hp" aria-hidden="true">
     <label for="website">Leave this empty</label>
     <input id="website" name="website" tabindex="-1" autocomplete="off">

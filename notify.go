@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Request is someone asking to be invited.
@@ -46,18 +47,7 @@ type SlackWebhook struct {
 }
 
 func (s *SlackWebhook) Notify(ctx context.Context, req Request) error {
-	text := fmt.Sprintf("*Request to join %s on Slack*\n*Email:* %s\n",
-		escape(s.Workspace), escape(req.Email))
-	if req.Note != "" {
-		text += fmt.Sprintf("*Note:*\n>%s\n", strings.ReplaceAll(escape(req.Note), "\n", "\n>"))
-	}
-	text += "To invite them: Slack menu → Invite people. To decline, do nothing."
-
-	body, err := json.Marshal(map[string]any{
-		"text":         text,
-		"unfurl_links": false,
-		"unfurl_media": false,
-	})
+	body, err := json.Marshal(s.message(req))
 	if err != nil {
 		return err
 	}
@@ -65,11 +55,17 @@ func (s *SlackWebhook) Notify(ctx context.Context, req Request) error {
 	defer cancel()
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, s.URL, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return errors.New("making the request to Slack")
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	resp, err := s.Client.Do(httpReq)
 	if err != nil {
+		// The error names the URL, which holds the webhook's secret: keep it
+		// out of the logs
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
 		return fmt.Errorf("posting to Slack: %w", err)
 	}
 	defer resp.Body.Close()
@@ -80,8 +76,50 @@ func (s *SlackWebhook) Notify(ctx context.Context, req Request) error {
 	return nil
 }
 
-// escape makes text safe to put in a Slack message: no links, mentions or
-// @channel pings from what visitors type.
-func escape(s string) string {
-	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(s)
+// message builds the Slack message. What visitors typed goes in plain_text
+// objects, which Slack shows as typed: no formatting, links or mentions, so
+// an admin sees the address exactly as it will be invited.
+func (s *SlackWebhook) message(req Request) map[string]any {
+	plain := func(text string) map[string]any {
+		return map[string]any{"type": "plain_text", "text": text, "emoji": false}
+	}
+	title := fmt.Sprintf("Request to join %s on Slack", s.Workspace)
+	blocks := []map[string]any{
+		{"type": "header", "text": plain(title)},
+		{"type": "section", "text": plain("Email: " + req.Email)},
+	}
+	if req.Note != "" {
+		blocks = append(blocks, map[string]any{"type": "section", "text": plain("Note: " + req.Note)})
+	}
+	blocks = append(blocks, map[string]any{
+		"type":     "context",
+		"elements": []any{plain("To invite them: workspace menu → Invite people. To decline, do nothing.")},
+	})
+	return map[string]any{
+		// For notifications; nothing the visitor typed
+		"text":         title,
+		"blocks":       blocks,
+		"unfurl_links": false,
+		"unfurl_media": false,
+	}
+}
+
+// hidden reports whether r is a control or formatting character, such as
+// the bidi overrides that can hide or reorder text.
+func hidden(r rune) bool {
+	return unicode.IsControl(r) || unicode.Is(unicode.Cf, r)
+}
+
+// cleanNote removes control and formatting characters from a note, keeping
+// line breaks.
+func cleanNote(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\n' {
+			return r
+		}
+		if hidden(r) {
+			return -1
+		}
+		return r
+	}, strings.ReplaceAll(s, "\r\n", "\n"))
 }

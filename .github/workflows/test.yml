@@ -1,0 +1,42 @@
+name: test
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # gofmt, go vet and the tests, with the race detector
+  go:
+    runs-on: ubuntu-latest
+    # The Go the image is built with (Dockerfile)
+    container: docker.io/library/golang:1.27-trixie
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "not gofmt-formatted: $unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test -race -count=1 ./...
+
+  # The image as CodeBuild builds it, started and checked as before a deploy
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build
+        run: make docker-build BUILD_LABEL=ci
+
+      - name: Smoketest
+        run: make docker-smoketest BUILD_LABEL=ci

@@ -100,10 +100,10 @@ func TestSecurityHeaders(t *testing.T) {
 func TestAssets(t *testing.T) {
 	h := newServer(&fakeNotifier{}).Handler()
 	for path, ctype := range map[string]string{
-		"/assets/org-logo.png":   "image/png",
-		"/assets/slack.svg":      "image/svg+xml",
-		"/assets/favicon-32.png": "image/png",
-		"/badge.svg":             "image/svg+xml",
+		"/assets/org-logo.png": "image/png",
+		"/assets/slack.svg":    "image/svg+xml",
+		"/assets/favicon.png":  "image/png",
+		"/badge.svg":           "image/svg+xml",
 	} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))

@@ -49,9 +49,9 @@ SOFTWARE.
 Slack's logo
 ------------
 
-assets/slack.svg and assets/favicon-32.png are Slack's logo: slack.svg as
-slack.com serves it (https://a.slack-edge.com/1f40066/marketing/img/nav/logo.svg),
-favicon-32.png copied from slackin-extended's assets. The logo and the Slack
-trademark belong to Slack Technologies; they are used here only to show that
-the page leads to Slack, and are under neither this repository's license nor
-slackin-extended's.
+assets/slack.svg and assets/favicon.png are Slack's logo, as slack.com
+serves them (https://a.slack-edge.com/1f40066/marketing/img/nav/logo.svg and
+https://a.slack-edge.com/9cc0056/img/icons/favicon-32.png). The logo and the
+Slack trademark belong to Slack Technologies; they are used here only to show
+that the page leads to Slack, and are under neither this repository's
+license nor slackin-extended's.

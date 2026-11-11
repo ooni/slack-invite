@@ -58,3 +58,10 @@ the page loads nothing from other sites.
 
 `/badge.svg` is a "slack | join" badge in place of slackin's, which READMEs
 embed. Unlike slackin's, it has no member count.
+
+## License
+
+BSD 3-Clause (LICENSE). The page's look and the badge are derived from
+[slackin-extended](https://github.com/emedvedev/slackin-extended) and
+[slackin](https://github.com/rauchg/slackin), under the MIT license, and
+the Slack logo belongs to Slack: see NOTICE.

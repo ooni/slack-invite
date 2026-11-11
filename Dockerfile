@@ -3,6 +3,7 @@ WORKDIR /src
 COPY go.mod ./
 COPY *.go ./
 COPY templates ./templates
+COPY assets ./assets
 RUN go vet ./... && go test ./...
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /slack-invite .
 

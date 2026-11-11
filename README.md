@@ -27,6 +27,7 @@ From the environment:
 | `SLACK_WEBHOOK_URL_FILE` | Or a file holding it |
 | `WORKSPACE_NAME` | Shown on the page and in requests (default `OONI`) |
 | `CONTACT_EMAIL` | Shown as a fallback for people who can't use the form |
+| `SLACK_SIGNIN_URL` | The workspace's URL (`https://<workspace>.slack.com/`), linked for members to sign in |
 | `CLIENT_IP_HEADER` | Header the load balancer puts the client's address in (`X-Forwarded-For` behind an AWS load balancer; its last address is used). Only for rate limiting |
 | `LISTEN_ADDR` | Address to listen on (default `:3000`; the image sets `:80`) |
 
@@ -45,3 +46,7 @@ and `ooniapi_service_deployer` modules. The deployer's CodeBuild project runs
 
 The image is Debian stable (`trixie-slim`) with `ca-certificates` from apt,
 for HTTPS to Slack. Rebuilding picks up their updates.
+
+The page looks like slackin's did. `assets/org-logo.png` is the workspace's
+icon and `assets/slack.svg` Slack's logo; the service serves them itself, so
+the page loads nothing from other sites.

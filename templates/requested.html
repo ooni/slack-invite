@@ -1,5 +1,5 @@
 {{template "top" .}}
-<h1>Request sent</h1>
+<p><strong>Request sent!</strong></p>
 <p>We'll email an invitation to <strong>{{.Email}}</strong>. It may take a few days.</p>
-{{if .ContactEmail}}<small>Didn't get one? Email <a href="mailto:{{.ContactEmail}}">{{.ContactEmail}}</a></small>{{end}}
+{{if .SignInURL}}<p class="signin">Already a member? <a href="{{.SignInURL}}" target="_top">Sign in</a>.</p>{{end}}
 {{template "bottom" .}}

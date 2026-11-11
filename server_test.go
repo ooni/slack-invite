@@ -34,7 +34,7 @@ func newServer(n Notifier) *Server {
 	return &Server{
 		Notifier: n,
 		Limiter:  &Limiter{PerClient: 3, Total: 30, Window: time.Hour, Now: time.Now},
-		Page:     Page{Workspace: "OONI", ContactEmail: "contact@example.org"},
+		Page:     Page{Workspace: "OONI", ContactEmail: "contact@example.org", SignInURL: "https://example.slack.com/"},
 	}
 }
 
@@ -59,6 +59,36 @@ func TestIndexShowsTheForm(t *testing.T) {
 	}
 	if !strings.Contains(w.Header().Get("Content-Security-Policy"), "form-action 'self'") {
 		t.Fatal("the form may post elsewhere")
+	}
+	for _, want := range []string{`src="/assets/org-logo.png"`, `src="/assets/slack.svg"`, `href="https://example.slack.com/"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("no %s in the page", want)
+		}
+	}
+}
+
+func TestAssets(t *testing.T) {
+	h := newServer(&fakeNotifier{}).Handler()
+	for path, ctype := range map[string]string{
+		"/assets/org-logo.png":   "image/png",
+		"/assets/slack.svg":      "image/svg+xml",
+		"/assets/favicon-32.png": "image/png",
+	} {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+		if w.Code != 200 || w.Header().Get("Content-Type") != ctype || w.Body.Len() == 0 {
+			t.Errorf("%s: status %d, %q, %d bytes", path, w.Code, w.Header().Get("Content-Type"), w.Body.Len())
+		}
+		if !strings.HasPrefix(w.Header().Get("Cache-Control"), "public") {
+			t.Errorf("%s: not cacheable", path)
+		}
+	}
+	for _, path := range []string{"/assets/", "/assets/missing.png", "/assets/../main.go"} {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+		if w.Code == 200 {
+			t.Errorf("%s: status 200", path)
+		}
 	}
 }
 
@@ -241,6 +271,7 @@ func TestFromEnv(t *testing.T) {
 		{"SLACK_WEBHOOK_URL": "https://evil.example/hook"},
 		{"SLACK_WEBHOOK_URL": "http://hooks.slack.com/services/x"},
 		{"SLACK_WEBHOOK_URL_FILE": "/does/not/exist"},
+		{"SLACK_WEBHOOK_URL": hook, "SLACK_SIGNIN_URL": "javascript:alert(1)"},
 	}
 	for _, m := range bad {
 		if _, _, err := fromEnv(env(m)); err == nil {

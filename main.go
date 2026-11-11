@@ -8,6 +8,8 @@
 //	SLACK_WEBHOOK_URL_FILE  or a file holding it
 //	WORKSPACE_NAME          shown on the page and in requests (default "OONI")
 //	CONTACT_EMAIL           shown as a fallback for people who can't use the form
+//	SLACK_SIGNIN_URL        the workspace's URL, linked for members to sign in
+//	                        (https://<workspace>.slack.com/)
 //	CLIENT_IP_HEADER        header the load balancer puts the client's address
 //	                        in, e.g. X-Forwarded-For (its last address is used);
 //	                        only for rate limiting
@@ -23,6 +25,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -80,6 +83,13 @@ func fromEnv(getenv func(string) string) (*Server, string, error) {
 	}
 
 	page := Page{Workspace: getenv("WORKSPACE_NAME"), ContactEmail: getenv("CONTACT_EMAIL")}
+	if signIn := getenv("SLACK_SIGNIN_URL"); signIn != "" {
+		u, err := url.Parse(signIn)
+		if err != nil || u.Scheme != "https" || u.Host == "" {
+			return nil, "", errors.New("SLACK_SIGNIN_URL must be an https URL")
+		}
+		page.SignInURL = u.String()
+	}
 	if page.Workspace == "" {
 		page.Workspace = "OONI"
 	}

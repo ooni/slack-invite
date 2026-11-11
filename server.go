@@ -7,12 +7,19 @@ import (
 	"net/http"
 	"net/mail"
 	"net/netip"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
 
 //go:embed templates/*.html
 var templates embed.FS
+
+// The logos and favicon, served by the service so pages load nothing from
+// other sites
+//
+//go:embed assets
+var assets embed.FS
 
 var pages = template.Must(template.ParseFS(templates, "templates/*.html"))
 
@@ -25,6 +32,7 @@ const (
 type Page struct {
 	Workspace    string
 	ContactEmail string
+	SignInURL    string
 	Email        string
 	Note         string
 	Error        string
@@ -46,6 +54,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /{$}", s.index)
 	mux.HandleFunc("POST /{$}", s.request)
 	mux.HandleFunc("GET /health", s.healthz)
+	mux.Handle("GET /assets/{file}", cacheFor(86400, http.FileServerFS(assets)))
 	return securityHeaders(mux)
 }
 
@@ -140,10 +149,18 @@ func (s *Server) render(w http.ResponseWriter, status int, name string, page Pag
 	}
 }
 
+func cacheFor(seconds int, next http.Handler) http.Handler {
+	value := "public, max-age=" + strconv.Itoa(seconds)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", value)
+		next.ServeHTTP(w, r)
+	})
+}
+
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		h.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+		h.Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")
 		next.ServeHTTP(w, r)

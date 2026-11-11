@@ -55,6 +55,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /{$}", s.request)
 	mux.HandleFunc("GET /health", s.healthz)
 	mux.Handle("GET /assets/{file}", cacheFor(86400, http.FileServerFS(assets)))
+	// slackin's badge, which READMEs embed; this one has no member count
+	mux.Handle("GET /badge.svg", cacheFor(86400, http.HandlerFunc(badge)))
 	return securityHeaders(mux)
 }
 
@@ -147,6 +149,10 @@ func (s *Server) render(w http.ResponseWriter, status int, name string, page Pag
 	if err := pages.ExecuteTemplate(w, name, page); err != nil {
 		log.Printf("rendering %s: %v", name, err)
 	}
+}
+
+func badge(w http.ResponseWriter, r *http.Request) {
+	http.ServeFileFS(w, r, assets, "assets/badge.svg")
 }
 
 func cacheFor(seconds int, next http.Handler) http.Handler {

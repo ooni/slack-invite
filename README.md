@@ -50,3 +50,6 @@ for HTTPS to Slack. Rebuilding picks up their updates.
 The page looks like slackin's did. `assets/org-logo.png` is the workspace's
 icon and `assets/slack.svg` Slack's logo; the service serves them itself, so
 the page loads nothing from other sites.
+
+`/badge.svg` is a "slack | join" badge in place of slackin's, which READMEs
+embed. Unlike slackin's, it has no member count.

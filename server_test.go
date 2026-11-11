@@ -73,6 +73,7 @@ func TestAssets(t *testing.T) {
 		"/assets/org-logo.png":   "image/png",
 		"/assets/slack.svg":      "image/svg+xml",
 		"/assets/favicon-32.png": "image/png",
+		"/badge.svg":             "image/svg+xml",
 	} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))

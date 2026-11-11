@@ -1,0 +1,17 @@
+{{template "top" .}}
+<h1>Join {{.Workspace}} on Slack</h1>
+<p>Ask for an invitation and we'll email you one.</p>
+{{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
+<form method="post" action="/">
+  <label for="email">Email address</label>
+  <input id="email" name="email" type="email" required maxlength="254" autocomplete="email" value="{{.Email}}">
+  <label for="note">What brings you to {{.Workspace}}? <span>(optional)</span></label>
+  <textarea id="note" name="note" maxlength="1000">{{.Note}}</textarea>
+  <div class="hp" aria-hidden="true">
+    <label for="website">Leave this empty</label>
+    <input id="website" name="website" tabindex="-1" autocomplete="off">
+  </div>
+  <button type="submit">Request an invitation</button>
+</form>
+{{if .ContactEmail}}<small>Trouble? Email <a href="mailto:{{.ContactEmail}}">{{.ContactEmail}}</a></small>{{end}}
+{{template "bottom" .}}

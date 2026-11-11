@@ -16,10 +16,15 @@
 //	CLIENT_IP_HEADER        header the load balancer puts the client's address
 //	                        in, e.g. X-Forwarded-For (its last address is used);
 //	                        only for rate limiting
+//	RATE_LIMIT_PER_CLIENT   requests allowed per IPv4 address or IPv6 /64 in each
+//	                        window (default 3)
+//	RATE_LIMIT_TOTAL        requests allowed overall in each window (default 30)
+//	RATE_LIMIT_WINDOW       the window, e.g. 1h or 30m (default 1h)
 //	LISTEN_ADDR             address to listen on (default ":3000")
 //
 // Nothing is stored: requests go to Slack, and email and IP addresses aren't
-// logged.
+// logged. IP addresses are only counted, as HMACs with a key thrown away at
+// the end of each rate limiting window.
 package main
 
 import (
@@ -54,6 +59,7 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	go srv.Limiter.Run(ctx)
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -104,6 +110,29 @@ func fromEnv(getenv func(string) string) (*Server, string, error) {
 		}
 		page.AskNote = ask
 	}
+	// A few requests per person, and few enough overall that a flood can't
+	// bury the admin channel
+	limiter := &Limiter{PerClient: 3, Total: 30, Window: time.Hour, Now: time.Now}
+	for name, n := range map[string]*int{
+		"RATE_LIMIT_PER_CLIENT": &limiter.PerClient,
+		"RATE_LIMIT_TOTAL":      &limiter.Total,
+	} {
+		if v := getenv(name); v != "" {
+			i, err := strconv.Atoi(v)
+			if err != nil || i < 1 {
+				return nil, "", fmt.Errorf("%s: %q is not a whole number above 0", name, v)
+			}
+			*n = i
+		}
+	}
+	if v := getenv("RATE_LIMIT_WINDOW"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d < time.Minute {
+			return nil, "", fmt.Errorf("RATE_LIMIT_WINDOW: %q is not a duration of at least 1m, like 1h", v)
+		}
+		limiter.Window = d
+	}
+
 	addr := getenv("LISTEN_ADDR")
 	if addr == "" {
 		addr = ":3000"
@@ -114,9 +143,7 @@ func fromEnv(getenv func(string) string) (*Server, string, error) {
 			Workspace: page.Workspace,
 			Client:    &http.Client{Timeout: 15 * time.Second},
 		},
-		// A few requests per person, and few enough overall that a flood
-		// can't bury the admin channel
-		Limiter:        &Limiter{PerClient: 3, Total: 30, Window: time.Hour, Now: time.Now},
+		Limiter:        limiter,
 		Page:           page,
 		ClientIPHeader: getenv("CLIENT_IP_HEADER"),
 	}, addr, nil

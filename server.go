@@ -95,7 +95,7 @@ func (s *Server) request(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !s.Limiter.Allow(s.clientIP(r)) {
-		page.Error = "There have been too many requests. Please try again in an hour."
+		page.Error = "There have been too many requests. Please try again later."
 		s.render(w, http.StatusTooManyRequests, "index.html", page)
 		return
 	}

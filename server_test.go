@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -275,6 +276,48 @@ func TestLimiterTotalAndWindow(t *testing.T) {
 	}
 }
 
+func TestLimiterForgetsClientsEachWindow(t *testing.T) {
+	now := time.Unix(0, 0)
+	l := &Limiter{PerClient: 1, Total: 10, Window: time.Hour, Now: func() time.Time { return now }}
+	l.Allow("192.0.2.1")
+
+	// Clients are counted by HMAC, not by address
+	l.mu.Lock()
+	key := append([]byte(nil), l.key...)
+	for id := range l.clients {
+		if strings.Contains(string(id[:]), "192.0.2.1") {
+			t.Fatal("the address is in the counts")
+		}
+		if id != l.id("192.0.2.1") {
+			t.Fatal("unexpected client id")
+		}
+	}
+	l.mu.Unlock()
+
+	// At the end of the window, the counts and the key go, even without a
+	// request: Run's tick does it
+	now = now.Add(time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	l.Window = time.Millisecond // so Run ticks at once
+	done := make(chan struct{})
+	go func() { l.Run(ctx); close(done) }()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		l.mu.Lock()
+		rotated := len(l.clients) == 0 && !bytes.Equal(l.key, key)
+		l.mu.Unlock()
+		if rotated {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the window's counts and key were kept")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	<-done
+}
+
 func TestNotifierFailureIsReported(t *testing.T) {
 	w := submit(t, newServer(&fakeNotifier{err: errors.New("down")}), url.Values{"email": {"ada@example.org"}}, "")
 	if w.Code != http.StatusBadGateway || !strings.Contains(w.Body.String(), "Please try again later") {
@@ -371,6 +414,9 @@ func TestFromEnv(t *testing.T) {
 		{"SLACK_WEBHOOK_URL_FILE": "/does/not/exist"},
 		{"SLACK_WEBHOOK_URL": hook, "SLACK_SIGNIN_URL": "javascript:alert(1)"},
 		{"SLACK_WEBHOOK_URL": hook, "ASK_NOTE": "maybe"},
+		{"SLACK_WEBHOOK_URL": hook, "RATE_LIMIT_PER_CLIENT": "0"},
+		{"SLACK_WEBHOOK_URL": hook, "RATE_LIMIT_TOTAL": "lots"},
+		{"SLACK_WEBHOOK_URL": hook, "RATE_LIMIT_WINDOW": "10s"},
 	}
 	for _, m := range bad {
 		if _, _, err := fromEnv(env(m)); err == nil {
@@ -386,5 +432,13 @@ func TestFromEnv(t *testing.T) {
 	}
 	if s, _, err := fromEnv(env(map[string]string{"SLACK_WEBHOOK_URL": hook, "ASK_NOTE": "true"})); err != nil || !s.Page.AskNote {
 		t.Fatalf("ASK_NOTE=true: %v", err)
+	}
+	if l := s.Limiter; l.PerClient != 3 || l.Total != 30 || l.Window != time.Hour {
+		t.Fatalf("default limits: %d %d %s", l.PerClient, l.Total, l.Window)
+	}
+	s, _, err = fromEnv(env(map[string]string{"SLACK_WEBHOOK_URL": hook,
+		"RATE_LIMIT_PER_CLIENT": "5", "RATE_LIMIT_TOTAL": "100", "RATE_LIMIT_WINDOW": "30m"}))
+	if err != nil || s.Limiter.PerClient != 5 || s.Limiter.Total != 100 || s.Limiter.Window != 30*time.Minute {
+		t.Fatalf("limits from the environment: %v %+v", err, s.Limiter)
 	}
 }

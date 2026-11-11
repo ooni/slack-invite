@@ -14,10 +14,12 @@ token, both of which Slack has been shutting down.
    emails them an invitation for their address. To decline, do nothing.
 
 Nothing is stored or logged. The service sends Slack only the email
-address (Slack sees visitors' IP addresses anyway once they join); it
-counts IP addresses in memory, for rate limiting, and nothing else. A hidden
-honeypot field and rate limits (3 requests per IPv4 address or IPv6 /64,
-and 30 overall, per hour) keep spam down, and forms posted from other sites
+address (Slack sees visitors' IP addresses anyway once they join). For rate
+limiting it counts IP addresses in memory as HMACs, keyed with a random key
+made for each window; at the end of the window the counts and the key are
+thrown away together, so they can't be matched to addresses afterwards. A hidden
+honeypot field and rate limits (by default 3 requests per IPv4 address or
+IPv6 /64, and 30 overall, per hour) keep spam down, and forms posted from other sites
 are refused. What visitors type reaches Slack as plain text, shown exactly
 as typed, without control or formatting characters.
 
@@ -34,6 +36,9 @@ From the environment:
 | `SLACK_SIGNIN_URL` | The workspace's URL (`https://<workspace>.slack.com/`), linked for members to sign in |
 | `ASK_NOTE` | `true` to also ask what brings people to the workspace and pass it on. Off by default: only the email address is asked for |
 | `CLIENT_IP_HEADER` | Header the load balancer puts the client's address in (`X-Forwarded-For` behind an AWS load balancer; its last address is used). Only for rate limiting |
+| `RATE_LIMIT_PER_CLIENT` | Requests allowed per IPv4 address or IPv6 /64 in each window (default `3`) |
+| `RATE_LIMIT_TOTAL` | Requests allowed overall in each window (default `30`) |
+| `RATE_LIMIT_WINDOW` | The window, e.g. `1h` or `30m`, at least `1m` (default `1h`) |
 | `LISTEN_ADDR` | Address to listen on (default `:3000`; the image sets `:80`) |
 
 To make the webhook: create a Slack app in the workspace, turn on Incoming

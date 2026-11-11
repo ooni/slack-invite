@@ -4,9 +4,9 @@ import (
 	"embed"
 	"html/template"
 	"log"
-	"net"
 	"net/http"
 	"net/mail"
+	"net/netip"
 	"strings"
 	"unicode/utf8"
 )
@@ -111,6 +111,7 @@ func validate(email, note string) string {
 	return ""
 }
 
+// clientIP is the address requests are rate limited by.
 func (s *Server) clientIP(r *http.Request) string {
 	if s.ClientIPHeader != "" {
 		// The last address is the one the proxy saw; a client can make up
@@ -118,16 +119,16 @@ func (s *Server) clientIP(r *http.Request) string {
 		values := r.Header.Values(s.ClientIPHeader)
 		if len(values) > 0 {
 			last := values[len(values)-1]
-			if ip := strings.TrimSpace(last[strings.LastIndex(last, ",")+1:]); ip != "" {
-				return ip
+			last = strings.TrimSpace(last[strings.LastIndex(last, ",")+1:])
+			if addr, err := netip.ParseAddr(last); err == nil {
+				return addr.Unmap().String()
 			}
 		}
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
+	if addrPort, err := netip.ParseAddrPort(r.RemoteAddr); err == nil {
+		return addrPort.Addr().Unmap().String()
 	}
-	return host
+	return r.RemoteAddr
 }
 
 func (s *Server) render(w http.ResponseWriter, status int, name string, page Page) {

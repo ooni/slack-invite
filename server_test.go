@@ -140,6 +140,29 @@ func TestRateLimits(t *testing.T) {
 	}
 }
 
+func TestClientIP(t *testing.T) {
+	s := &Server{ClientIPHeader: "X-Forwarded-For"}
+	cases := []struct{ remote, xff, want string }{
+		{"192.0.2.1:1234", "", "192.0.2.1"},
+		{"[2001:db8::1]:1234", "", "2001:db8::1"},
+		{"[::ffff:192.0.2.1]:1234", "", "192.0.2.1"},
+		{"10.0.0.1:1234", "1.1.1.1, 198.51.100.1", "198.51.100.1"},
+		{"10.0.0.1:1234", "2001:db8::2", "2001:db8::2"},
+		// Not an address: the connection's address is used
+		{"10.0.0.1:1234", "1.1.1.1, garbage", "10.0.0.1"},
+	}
+	for _, c := range cases {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr = c.remote
+		if c.xff != "" {
+			r.Header.Set("X-Forwarded-For", c.xff)
+		}
+		if got := s.clientIP(r); got != c.want {
+			t.Errorf("%s, %q: got %s, want %s", c.remote, c.xff, got, c.want)
+		}
+	}
+}
+
 func TestLimiterTotalAndWindow(t *testing.T) {
 	now := time.Unix(0, 0)
 	l := &Limiter{PerClient: 10, Total: 2, Window: time.Hour, Now: func() time.Time { return now }}

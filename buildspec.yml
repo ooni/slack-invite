@@ -1,0 +1,24 @@
+# Run by the CodeBuild project of ooni/devops' ooniapi_service_deployer
+version: 0.2
+env:
+  variables:
+    DOCKERHUB_SECRET_ID: oonidevops/dockerhub/access_token
+
+phases:
+  pre_build:
+    commands:
+      - echo "Logging in to dockerhub"
+      - DOCKER_SECRET=$(aws secretsmanager get-secret-value --secret-id $DOCKERHUB_SECRET_ID --query SecretString --output text)
+      - echo $DOCKER_SECRET | docker login --username ooni --password-stdin
+
+  build:
+    commands:
+      - export GIT_FULL_SHA=${CODEBUILD_RESOLVED_SOURCE_VERSION}
+      - make docker-build
+      - make docker-smoketest
+      - make docker-push
+      - make imagedefinitions.json
+      - cat imagedefinitions.json
+
+artifacts:
+  files: imagedefinitions.json

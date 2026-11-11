@@ -15,9 +15,11 @@ token, both of which Slack has been shutting down.
 
 Nothing is stored or logged. The service sends Slack only the email
 address (Slack sees visitors' IP addresses anyway once they join). For rate
-limiting it counts IP addresses in memory as HMACs, keyed with a random key
-made for each window; at the end of the window the counts and the key are
-thrown away together, so they can't be matched to addresses afterwards. A hidden
+limiting it counts IP addresses in memory by a 16-bit ID, the start of an
+HMAC keyed with a random key made for each window. About 65,000 IPv4
+addresses share each ID, so an ID can't tell which address visited, even
+with the key; at the end of the window the counts and the key are thrown
+away together. A hidden
 honeypot field and rate limits (by default 3 requests per IPv4 address or
 IPv6 /64, and 30 overall, per hour) keep spam down, and forms posted from other sites
 are refused. What visitors type reaches Slack as plain text, shown exactly

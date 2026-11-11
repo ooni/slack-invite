@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"sync"
 	"time"
 )
@@ -12,10 +13,14 @@ import (
 // Limiter allows up to PerClient requests per client, and Total requests
 // overall, in each Window.
 //
-// Clients are counted by an HMAC of their address, keyed with a random key
-// made for each window. When the window ends, the counts and the key are
-// thrown away together, so what's left can't be matched to an address, not
-// even by hashing every address again.
+// Clients are counted by a 16-bit ID: the start of an HMAC of their address,
+// keyed with a random key made for each window. About 65,000 IPv4 addresses
+// (and countless IPv6 /64s) share each ID, so even with the key an ID can't
+// tell which address it was. When the window ends, the counts and the key
+// are thrown away together.
+//
+// Two clients in a window may share an ID, and so a limit: with 30 clients,
+// in under 1% of windows.
 type Limiter struct {
 	PerClient int
 	Total     int
@@ -26,7 +31,7 @@ type Limiter struct {
 	start   time.Time
 	key     []byte
 	total   int
-	clients map[[16]byte]int
+	clients map[uint16]int
 }
 
 func (l *Limiter) Allow(client string) bool {
@@ -70,12 +75,11 @@ func (l *Limiter) expire() {
 	clear(l.key)
 	l.key = make([]byte, 32)
 	rand.Read(l.key)
-	l.start, l.total, l.clients = now, 0, map[[16]byte]int{}
+	l.start, l.total, l.clients = now, 0, map[uint16]int{}
 }
 
-func (l *Limiter) id(client string) (id [16]byte) {
+func (l *Limiter) id(client string) uint16 {
 	mac := hmac.New(sha256.New, l.key)
 	mac.Write([]byte(client))
-	copy(id[:], mac.Sum(nil))
-	return id
+	return binary.BigEndian.Uint16(mac.Sum(nil))
 }

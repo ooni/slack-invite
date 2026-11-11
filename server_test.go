@@ -281,13 +281,10 @@ func TestLimiterForgetsClientsEachWindow(t *testing.T) {
 	l := &Limiter{PerClient: 1, Total: 10, Window: time.Hour, Now: func() time.Time { return now }}
 	l.Allow("192.0.2.1")
 
-	// Clients are counted by HMAC, not by address
+	// Clients are counted by a 16-bit ID, not by address
 	l.mu.Lock()
 	key := append([]byte(nil), l.key...)
 	for id := range l.clients {
-		if strings.Contains(string(id[:]), "192.0.2.1") {
-			t.Fatal("the address is in the counts")
-		}
 		if id != l.id("192.0.2.1") {
 			t.Fatal("unexpected client id")
 		}

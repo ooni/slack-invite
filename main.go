@@ -23,8 +23,9 @@
 //	LISTEN_ADDR             address to listen on (default ":3000")
 //
 // Nothing is stored: requests go to Slack, and email and IP addresses aren't
-// logged. IP addresses are only counted, as HMACs with a key thrown away at
-// the end of each rate limiting window.
+// logged. IP addresses are only counted, by 16-bit IDs that thousands of
+// addresses share, made with a key thrown away at the end of each rate
+// limiting window.
 package main
 
 import (
